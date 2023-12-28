@@ -1,0 +1,3 @@
+[submodule "fpga-interchange-schema"]
+	path = fpga-interchange-schema
+	url = git@github.com:alex-maiorov/fpga-interchange-schema.git
