@@ -23,7 +23,7 @@ pub mod References_capnp {
 }
 
 use crate::PhysicalNetlist_capnp::phys_netlist;
-use crate::LogicalNetlist_capnp::netlist ;
+use crate::LogicalNetlist_capnp::netlist;
 use crate::DeviceResources_capnp::{device, string_ref, hash_set};
 
 //note to V, code is poorly organized but will refactor later
