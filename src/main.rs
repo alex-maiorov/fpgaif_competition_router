@@ -1,3 +1,5 @@
+pub mod fpgaif;
+
 use std::fs::File;
 use capnp::{serialize_packed, serialize};
 use std::env;
