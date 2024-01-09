@@ -25,7 +25,7 @@ pub mod serialization{
     }
 }
 
-use serialization::physical_netlist_capnp::phys_netlist::NetType;
+
 
 pub mod fpgaif{
     /*Notes:
@@ -34,40 +34,40 @@ pub mod fpgaif{
     */
 
     //this is gonna be twice the system's address space width(i.e 16 bytes on a 64 bit system), 
-    //methinks worth it to allow for indirectio without having string-field name comparison madness
+    //methinks worth it to allow for indirection without having string-field name comparison madness
 
-    use std::fmt::Display;
+    use std::{fmt::Display, sync::{RwLock, Arc}};
 
     use capnp::serialize;
 
-    use super::serialization::physical_netlist_capnp;
+    use crate::serialization::physical_netlist_capnp::phys_netlist;
 
     struct VecIndexReference<T>{ 
         index: usize,
-        vector_ref: &Vec<T>,
+        vector_ref: Arc<RwLock<Vec<T>>>,
     }
 
 
     impl<T> VecIndexReference<T>{
-        fn new(new_index: usize, new_vector_ref: &Vec<T>) -> VecIndexReference<T>{
+        fn new(new_index: usize, new_vector_ref: Arc<RwLock<Vec<T>>>) -> VecIndexReference<T>{
             VecIndexReference{
                 index: new_index,
                 vector_ref: new_vector_ref,
             }
         }
 
-        fn read_value(&self) -> T{
-            return *(self.vector_ref)[self.index];
+        fn read_value(&self) -> Result<T>{
+            return *(*(self.vector_ref).write())?[self.index];
         }
 
-        fn write_value(&self, value: T){
-            *(self.vector_ref)[self.index] = value;
+        fn write_value(&self, value: T)->Result<T>{
+            *(*(self.vector_ref).write())?[self.index] = value;
         }
+    }
 
-        fn new_append(&self, vector_ref: &mut Vec<T>, value: T) -> VecIndexReference<T>{
-            *(self.vector_ref).push(value);
-            let index = *(self.vector_ref).len() - 1; 
-            return VecIndexReference::new(index, vector_ref);
+    impl Display for VecIndexReference<T>{
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!("{}", self.read_value()?)
         }
     }
 
@@ -122,7 +122,7 @@ pub mod fpgaif{
                 &phys_netlist_uncompressed_data[..],
                 capnp_reader_options,
             )?;
-            let phys_netlist_message = message_reader.get_root::<serialization::physical_netlist_capnp::phys_netlist::Reader>()?;
+            let phys_netlist_message = message_reader.get_root::<phys_netlist::Reader>()?;
 
             let string_list: Vec<String> = Vec::new();
 
@@ -142,14 +142,28 @@ pub mod fpgaif{
         
     }
 
-    /// .
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if there is an issue with the deserialization downstream.
-    fn try_read_physnet(reader: physicalnetlist_capnp::phys_netlist::phys_net::Reader,
+        /// .
+        ///
+        /// # Errors
+        ///
+        /// This function will return an error if there is an issue with the deserialization downstream.
+    fn try_read_physnet(reader: phys_netlist::phys_net::Reader,
         str_list: &Vec<String>) -> Result<PhysNet> {
-            todo!();
+            Ok(PhysNet{
+                name: VecIndexReference::new(reader.get_name(), str_list),
+                sources: todo!(),
+                stubs: todo!(),
+                phys_net_type: todo!(),
+            })
+    }
+
+    fn try_read_route_branch(reader: phys_netlist::route_branch::Reader) -> Result<RouteBranch>{
+        route_segment_reader = reader.get_route_segment()?.which();
+
+        let route_segment: RouteSegment = match route_segment_reader{
+            BelPin => RouteSegment::BelPinSegment(()),
+            
+        };
     }
 
 
@@ -158,7 +172,7 @@ pub mod fpgaif{
         part_name: String,
         placements: Vec<CellPlacement>,
         phys_cells: Vec<PhysCell>,
-        str_list: Vec<String>,
+        str_list: Arc<RwLock<Vec<String>>,
         site_instances: Vec<SiteInstance>,
         properties: Vec<PhysNetlistProperty>,
         null_net: PhysNet,
@@ -208,7 +222,11 @@ pub mod fpgaif{
         phys_net_type: NetType,
     }
 
-
+    enum NetType{
+        Signal,
+        Gnd,
+        Vcc,
+    }
 
     struct RouteBranch{
         route_segment: RouteSegment,
@@ -247,6 +265,14 @@ pub mod fpgaif{
         site: Option<VecIndexReference<String>>,
     }
 
+    impl PhysPip{
+        fn deserialize(str_list: Arc<RwLock<Vec<String>>>, reader: phys_netlist::phys_site_p_i_p::Reader)->PhysPip{
+
+        }
+    }
+
+
+    
     struct PhysSitePip{
         site: VecIndexReference<String>,
         bel: VecIndexReference<String>,
@@ -255,26 +281,73 @@ pub mod fpgaif{
         inversion: Option<bool>, //None indicates inversion impossible, bool in option indicates if it is inverted currently
     }
 
+    impl PhysSitePip{
+        fn deserialize(str_list: Arc<RwLock<Vec<String>>>, reader: phys_netlist::phys_site_p_i_p::Reader)->PhysSitePip{
+            
+            let inversion_reader = reader.which()?;
+            let inversion: Option<bool> = match inversion_reader{
+                phys_netlist::phys_netlist::phys_site_p_i_p::Which::IsInverting(b) => Some(b),
+                phys_netlist::phys_netlist::phys_site_p_i_p::Which::Inverts => None,
+            };
+            
+            PhysSitePip { 
+                site: VecIndexReference::new(reader.get_site(), str_list.clone()), 
+                bel: VecIndexReference::new(reader.get_bel(), str_list.clone()), 
+                pin: VecIndexReference::new(reader.get_pin(), str_list.clone()), 
+                is_fixed: VecIndexReference::new(reader.get_is_fixed(), str_list.clone()), 
+                inversion: inversion }
+        }
+    }
+
     struct PhysNode{
         tile: VecIndexReference<String>,
         wire: VecIndexReference<String>,
         is_fixed: bool,
     }
 
+    impl PhysNode{
+        fn deserialize(str_list: Arc<RwLock<Vec<String>>>, reader: phys_netlist::phys_node::Reader)->PhysNode{
+            PhysNode { 
+                tile: VecIndexReference::new(reader.get_site(), str_list.clone()), 
+                wire: VecIndexReference::new(reader.get_wire(), str_list.clone()), 
+                is_fixed: reader.get_is_fixed }
+        }
+    }
+
+
     struct SiteInstance{
         site: VecIndexReference<String>,
         site_inst_type: VecIndexReference<String>,
     }
 
+    impl SiteInstance{
+        fn deserialize(str_list: Arc<RwLock<Vec<String>>>, reader: phys_netlist::site_instance::Reader)->SiteInstance{
+            SiteInstance{
+                site: VecIndexReference::new(reader.get_site(), str_list.clone()),
+                site_inst_type: VecIndexReference::new(reader.get_type(), str_list.clone()),
+            }
+        }
+    }
+
+
     struct PhysNetlistProperty{
         key: VecIndexReference<String>,
         value: VecIndexReference<String>,
+    }
+
+    impl PhysNetlistProperty{
+        fn deserialize(str_list: Arc<RwLock<Vec<String>>>, reader: phys_netlist::property::Reader)->PhysNetlistProperty{
+            PhysNetlistProperty{
+                key: VecIndexReference::new(reader.get_key(), str_list.clone()),
+                value: VecIndexReference::new(reader.get_value(), str_list.clone()),
+            }
+        }
     }
 //   struct PhysNode {
 //     tile    @0 : StringIdx $stringRef();
 //     wire    @1 : StringIdx $stringRef();
 //     isFixed @2 : Bool;
-//   }
+//   } reader.get_value()?
 
 //   struct SiteInstance {
 //     site  @0 : StringIdx $stringRef();

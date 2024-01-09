@@ -16,7 +16,7 @@ pub mod LogicalNetlist_capnp {
     include!(concat!(env!("OUT_DIR"), "/fpga-interchange-schema/interchange/LogicalNetlist_capnp.rs"));
 }
 
-pub mod PhysicalNetlist_capnp {
+pub mod PhysicalNetlist_capnp {4
     include!(concat!(env!("OUT_DIR"), "/fpga-interchange-schema/interchange/PhysicalNetlist_capnp.rs"));
 }
 
