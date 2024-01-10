@@ -147,27 +147,10 @@ pub mod fpgaif{
         /// # Errors
         ///
         /// This function will return an error if there is an issue with the deserialization downstream.
-    fn try_read_physnet(reader: phys_netlist::phys_net::Reader,
-        str_list: &Vec<String>) -> Result<PhysNet> {
-            Ok(PhysNet{
-                name: VecIndexReference::new(reader.get_name(), str_list),
-                sources: todo!(),
-                stubs: todo!(),
-                phys_net_type: todo!(),
-            })
-    }
-
-    fn try_read_route_branch(reader: phys_netlist::route_branch::Reader) -> Result<RouteBranch>{
-        route_segment_reader = reader.get_route_segment()?.which();
-
-        let route_segment: RouteSegment = match route_segment_reader{
-            BelPin => RouteSegment::BelPinSegment(()),
-            
-        };
-    }
 
 
-    #[derive(Debug)]
+
+
     struct PhysNetlist{
         part_name: String,
         placements: Vec<CellPlacement>,
@@ -228,6 +211,10 @@ pub mod fpgaif{
         Vcc,
     }
 
+    impl PhysNet{
+        
+    }
+
     struct RouteBranch{
         route_segment: RouteSegment,
         branches: Vec<RouteBranch>,
@@ -240,9 +227,49 @@ pub mod fpgaif{
         SitePipSegment(PhysSitePip),
     }
 
+    impl RouteBranch{
+        fn deserialize(str_list: Arc<RwLock<Vec<String>>>, reader: phys_netlist::route_branch::Reader) -> PhysBel {
+            let route_segment: RouteSegment = match reader.which().unwrap(){
+                phys_netlist::route_branch::Which::BelPin(b) => {
+                    RouteSegment::BelPinSegment(PhysBelPin::deserialize(&str_list, b))
+                },
+                phys_netlist::route_branch::Which::SitePin(s) => {
+                    RouteSegment::SitePinSegment(PhysBelPin::deserialize(&str_list, s))
+                },
+                phys_netlist::route_branch::Which::Pip(p) => {
+                    RouteSegment::PipSegment(PhysPip::deserialize(&str_list, p))
+                },
+                phys_netlist::route_branch::Which::SitePIP(sp) => {
+                    RouteSegment::SitePipSegment(PhysSitePip::deserialize(&str_list, sp))
+                },
+            };
+            
+            let mut branches: RouteBranch = Vec::new();
+            if(reader.has_branches()){
+                for branch in reader.get_branches().unwrap(){
+                    branch_reader = branch.into_internal_struct_reader();
+                    branches.push(RouteBranch::deserialize(str_list, branch_reader))
+                }
+            }
+            RouteBranch{ 
+                route_segment: route_segment, 
+                branches:  branches
+            }
+        }
+    }
+
     struct PhysBel{
         site: VecIndexReference<String>,
         bel: VecIndexReference<String>,
+    }
+
+    impl PhysBel{
+        fn deserialize(str_list: Arc<RwLock<Vec<String>>>, reader: phys_netlist::phys_bel::Reader) -> PhysBel {
+            PhysBel{
+                site: VecIndexReference::new(reader.get_site(), str_list.clone()),
+                bel: VecIndexReference::new(reader.get_bel(), str_list.clone()),
+            }
+        }
     }
 
     struct PhysBelPin{
@@ -250,11 +277,30 @@ pub mod fpgaif{
         bel: VecIndexReference<String>,
         pin: VecIndexReference<String>,
     }
+    impl PhysBelPin{
+        fn deserialize(str_list: Arc<RwLock<Vec<String>>>, reader: phys_netlist::phys_bel_pin::Reader){
+            PhysBelPin{
+                site: VecIndexReference::new(reader.get_site(), str_list.clone()),
+                bel: VecIndexReference::new(reader.get_bel(), str_list.clone()),
+                pin: VecIndexReference::new(reader.get_pin(), str_list.clone()),
+            }
+        }
+    }
 
     struct PhysSitePin{
         site: VecIndexReference<String>,
         pin: VecIndexReference<String>,
     }
+
+    impl PhysSitePin{
+        fn deserialize(str_list: Arc<RwLock<Vec<String>>>, reader: phys_netlist::phys_site_pin::Reader){
+            PhysSitePin {
+                site: VecIndexReference::new(reader.get_site(), str_list.clone()),
+                pin: VecIndexReference::new(reader.get_pin(), str_list.clone()),
+            }
+        }
+    }
+
 
     struct PhysPip{
         tile: VecIndexReference<String>,
@@ -266,8 +312,21 @@ pub mod fpgaif{
     }
 
     impl PhysPip{
-        fn deserialize(str_list: Arc<RwLock<Vec<String>>>, reader: phys_netlist::phys_site_p_i_p::Reader)->PhysPip{
-
+        fn deserialize(str_list: Arc<RwLock<Vec<String>>>, reader: phys_netlist::phys_p_i_p::Reader)->PhysPip{
+            let site: Option<VecIndexReference<String>>  = match reader.which().unwrap(){
+                phys_netlist::phys_p_i_p::Which::NoSite(s) => None,
+                phys_netlist::phys_p_i_p::Which::Site(s) => Some(VecIndexReference::new(s, str_list.clone())),
+                _ => None, 
+            };
+            
+            PhysPip{
+                tile: VecIndexReference::new(reader.get_tile(), str_list.clone()),
+                wire0: VecIndexReference::new(reader.get_wire0(), str_list.clone()),
+                wire1: VecIndexReference::new(reader.get_wire1(), str_list.clone()),
+                forward: reader.get_forward(),
+                is_fixed: reader.get_is_fixed(),
+                site: site,
+            }
         }
     }
 
@@ -284,7 +343,7 @@ pub mod fpgaif{
     impl PhysSitePip{
         fn deserialize(str_list: Arc<RwLock<Vec<String>>>, reader: phys_netlist::phys_site_p_i_p::Reader)->PhysSitePip{
             
-            let inversion_reader = reader.which()?;
+            let inversion_reader = reader.which().unwrap();
             let inversion: Option<bool> = match inversion_reader{
                 phys_netlist::phys_netlist::phys_site_p_i_p::Which::IsInverting(b) => Some(b),
                 phys_netlist::phys_netlist::phys_site_p_i_p::Which::Inverts => None,
@@ -310,7 +369,7 @@ pub mod fpgaif{
             PhysNode { 
                 tile: VecIndexReference::new(reader.get_site(), str_list.clone()), 
                 wire: VecIndexReference::new(reader.get_wire(), str_list.clone()), 
-                is_fixed: reader.get_is_fixed }
+                is_fixed: reader.get_is_fixed() }
         }
     }
 
