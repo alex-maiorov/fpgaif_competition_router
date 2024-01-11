@@ -42,10 +42,13 @@ pub mod fpgaif{
 
     use crate::serialization::physical_netlist_capnp::phys_netlist;
 
+
+    //Thread-safe reference using an index into a vector. Analagous to the "ref" indeces in the schema
     struct VecIndexReference<T>{ 
         index: usize,
         vector_ref: Arc<RwLock<Vec<T>>>,
     }
+
 
 
     impl<T> VecIndexReference<T>{
@@ -55,14 +58,18 @@ pub mod fpgaif{
                 vector_ref: new_vector_ref,
             }
         }
-
+        //cursed and not tested, but if it doesn't work its obvious what it should do
         fn read_value(&self) -> Result<T>{
-            return *(*(self.vector_ref).write())?[self.index];
+            return Ok(*(*(self.vector_ref).read())?[self.index]);
         }
 
-        fn write_value(&self, value: T)->Result<T>{
+        fn write_value(&self, value: T)->Result<()>{
             *(*(self.vector_ref).write())?[self.index] = value;
+            return Ok(());
         }
+
+        // fn new_append(value: T, vector_ref: Arc<RwLock<Vec<T>>>)-> Result<VecIndexReference<T>>{
+        // }
     }
 
     impl Display for VecIndexReference<T>{
@@ -169,10 +176,28 @@ pub mod fpgaif{
         multi_cell_mapping: Option<MultiCellPinMapping>, //option instead of union with none
     }
 
+    impl PinMapping{
+        fn deserialize(str_list: Arc<RwLock<Vec<String>>>, reader: phys_netlist::pin_mapping::Reader){
+            // let multi_cell_mapping = match reader.which().unwrap(){
+            //     phys_netlist::pin_mapping::Which::
+            // }.unwrap();
+            todo!()
+        }
+        
+    }
+
     struct MultiCellPinMapping{
         multi_cell: VecIndexReference<String>,
         multi_type: VecIndexReference<String>,
     }
+
+    impl MultiCellPinMapping{
+        fn deserialize(str_list: Arc<RwLock<Vec<String>>>, reader: phys_netlist::multi_cell_pin_mapping::Reader){
+            todo!()
+        }
+    }
+
+    
 
     struct CellPlacement{
         cell_name: VecIndexReference<String>,
@@ -186,16 +211,29 @@ pub mod fpgaif{
         alt_site_type: VecIndexReference<String>,
     }
 
+    use phys_netlist::PhysCellType;
     struct PhysCell{
         cell_name: VecIndexReference<String>,
         phys_type: PhysCellType
     }
 
-    enum PhysCellType{
-        Locked,
-        Port,
-        Gnd,
-        Vcc,
+    
+    /*
+    pub enum PhysCellType {
+    Locked = 0,
+    Port = 1,
+    Gnd = 2,
+    Vcc = 3,
+    } */
+
+    impl PhysCell{
+        fn deserialize(str_list: Arc<RwLock<Vec<String>>>, reader: phys_netlist::phys_cell::Reader) -> PhysCell{
+            PhysCell{
+                cell_name: VecIndexReference::new(reader.get_cell_name(), str_list.clone()),
+                phys_type: reader.get_phys_type().unwrap(),
+            }
+
+        }
     }
 
     struct PhysNet{
@@ -212,7 +250,30 @@ pub mod fpgaif{
     }
 
     impl PhysNet{
-        
+        fn deserialize(str_list: Arc<RwLock<Vec<String>>>, reader: phys_netlist::phys_net::Reader) -> PhysNet{
+            let mut sources: Vec<RouteBranch> = Vec::new();
+            if(reader.has_sources()){
+                for source in reader.get_sources.unwrap(){
+                    sources.push(RouteBranch::deserialize(&str_list, source.into_internal_struct_reader()));
+                }
+            }
+            let mut stubs: Vec<RouteBranch> = Vec::new();
+            if(reader.has_stubs()){
+                for stub in reader.get_stubs.unwrap(){
+                    stubs.push(RouteBranch::deserialize(&str_list, stub.into_internal_struct_reader()));
+                }
+            }
+            let net_type: NetType = match reader.get_type().unwrap(){
+                phys_netlist::phys_net::NetType::Signal(()) => NetType::Signal(),
+                phys_netlist::phys_net::NetType::Gnd(()) => NetType::Gnd(),
+                phys_netlist::phys_net::NetType::Vcc(()) => NetType::Vcc(),
+            };
+
+            PhysNet { name: VecIndexReference::new(reader.get_name(), str_list.clone()), 
+                sources: sources, 
+                stubs: stubs, 
+                phys_net_type: net_type }
+        }
     }
 
     struct RouteBranch{
@@ -248,7 +309,7 @@ pub mod fpgaif{
             if(reader.has_branches()){
                 for branch in reader.get_branches().unwrap(){
                     branch_reader = branch.into_internal_struct_reader();
-                    branches.push(RouteBranch::deserialize(str_list, branch_reader))
+                    branches.push(RouteBranch::deserialize(&str_list, branch_reader))
                 }
             }
             RouteBranch{ 
