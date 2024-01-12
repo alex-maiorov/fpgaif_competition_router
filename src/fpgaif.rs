@@ -59,17 +59,24 @@ pub mod fpgaif {
             }
         }
         //cursed and not tested, but if it doesn't work its obvious what it should do
-        fn read_value(&self) -> Result<T>{
+        fn read_value(&self) -> Result<T, ()>{
             return Ok(*(*(self.vector_ref).read())?[self.index]);
         }
 
-        fn write_value(&self, value: T)->Result<()>{
+        fn write_value(&self, value: T)->Result<(), ()>{
             *(*(self.vector_ref).write())?[self.index] = value;
             return Ok(());
         }
 
-        // fn new_append(value: T, vector_ref: Arc<RwLock<Vec<T>>>)-> Result<VecIndexReference<T>>{
-        // }
+        fn new_append(value: T, vector_ref: Arc<RwLock<Vec<T>>>)-> Result<VecIndexReference<T>, ()>{
+            let mut vector = (*vector_ref).write()?;
+            (*vector).push(value);
+            let index = vector.len() -1;
+            Ok(VecIndexReference{
+                index: index,
+                vector_ref: vector_ref.clone(),
+            })
+        }
     }
 
     impl Display for VecIndexReference<T>{
