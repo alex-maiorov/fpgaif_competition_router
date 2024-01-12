@@ -27,7 +27,7 @@ pub mod serialization{
 
 
 
-pub mod fpgaif{
+pub mod fpgaif {
     /*Notes:
     - The way they do referencing to list fields is a little cursed; an annotation is used to refer the index to the 
     original list field name. Not sure how to actually fish it out. Might hardcode it instead. 
